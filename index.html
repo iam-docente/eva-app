@@ -686,6 +686,101 @@ let state = {
   currentPage: 'dashboard'
 };
 
+// ─── SUPABASE CONFIG ───
+const SB_URL  = 'https://ejryzxlghcbbfhtlpjre.supabase.co';
+const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcnl6eGxnaGNiYmZodGxwanJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjQ4MjYsImV4cCI6MjA5NDQwMDgyNn0.yhGCQbcJDMbyvm_HZJMmtAgxYNS6h7fHHgtt1_1JB8k';
+const SB_HDR  = { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY };
+
+// ─── SUPABASE HELPERS ───
+async function sbGet(table, params = '') {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?${params}`, { headers: SB_HDR });
+  if (!r.ok) throw new Error(`GET ${table}: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+async function sbPost(table, body) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}`, {
+    method: 'POST', headers: { ...SB_HDR, 'Prefer': 'return=representation' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(`POST ${table}: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+async function sbDelete(table, filter) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?${filter}`, {
+    method: 'DELETE', headers: SB_HDR
+  });
+  if (!r.ok) throw new Error(`DELETE ${table}: ${r.status} ${await r.text()}`);
+}
+async function sbPatch(table, filter, body) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?${filter}`, {
+    method: 'PATCH', headers: { ...SB_HDR, 'Prefer': 'return=representation' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(`PATCH ${table}: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// ─── CARGA INICIAL DESDE SUPABASE ───
+async function cargarTodo() {
+  showLoading(true);
+  try {
+    const [cursos, alumnos, grupos, integrantes, evaluaciones] = await Promise.all([
+      sbGet('cursos', 'order=created_at.asc'),
+      sbGet('alumnos', 'order=created_at.asc'),
+      sbGet('grupos', 'order=created_at.asc'),
+      sbGet('grupo_integrantes', 'select=grupo_id,alumno_id'),
+      sbGet('evaluaciones', 'order=created_at.asc')
+    ]);
+    state.cursos  = cursos.map(c => ({ id: c.id, nombre: c.nombre, nivel: c.nivel || '' }));
+    state.alumnos = alumnos.map(a => ({ id: a.id, nombre: a.nombre, rut: a.rut || '', cursoId: a.curso_id }));
+
+    // Reconstruir grupos con array de integrantes
+    state.grupos = grupos.map(g => ({
+      id: g.id, nombre: g.nombre, cursoId: g.curso_id,
+      integrantes: integrantes.filter(i => i.grupo_id === g.id).map(i => i.alumno_id)
+    }));
+
+    // Reconstruir evaluaciones como objeto keyed por alumno_id
+    state.evaluaciones = {};
+    evaluaciones.forEach(e => {
+      state.evaluaciones[e.alumno_id] = {
+        id: e.id,
+        criterios: { C1: e.c1, C2: e.c2, C3: e.c3, C4: e.c4 },
+        total: e.total,
+        nota: e.nota,
+        fecha: e.fecha
+      };
+    });
+
+    // Preferencia dark mode desde localStorage (solo preferencia visual)
+    const dark = localStorage.getItem('evp2_dark');
+    if (dark === 'true') {
+      state.dark = true;
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('dark-switch').classList.add('on');
+    }
+
+    updateStats(); renderDashboard(); refreshCursosSelects();
+    showToast('✓ Datos cargados desde Supabase');
+  } catch(e) {
+    console.error(e);
+    showToast('⚠ Error al conectar con Supabase: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+function showLoading(on) {
+  let el = document.getElementById('loading-bar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'loading-bar';
+    el.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:3px;background:var(--accent);z-index:9999;transition:opacity .3s';
+    document.body.appendChild(el);
+  }
+  el.style.opacity = on ? '1' : '0';
+}
+
 // Rubrica config
 const CRITERIOS = [
   { id:'C1', name:'C1 — Arquitectura', desc:'Diseño y estructura del sistema' },
@@ -743,6 +838,7 @@ function toggleDark() {
   state.dark = !state.dark;
   document.documentElement.setAttribute('data-theme', state.dark ? 'dark' : '');
   document.getElementById('dark-switch').classList.toggle('on', state.dark);
+  localStorage.setItem('evp2_dark', state.dark);
 }
 
 // ─── MODALS ───
@@ -765,19 +861,23 @@ document.addEventListener('keydown', e => {
 });
 
 // ─── ALUMNOS ───
-function agregarAlumno() {
+async function agregarAlumno() {
   const nombre = document.getElementById('inp-nombre').value.trim();
-  const rut = document.getElementById('inp-rut').value.trim();
-  const cursoId = document.getElementById('inp-curso-alumno').value;
+  const rut    = document.getElementById('inp-rut').value.trim();
+  const cursoId = document.getElementById('inp-curso-alumno').value || null;
   if (!nombre) { showToast('⚠ Ingresa el nombre del alumno'); return; }
-  const alumno = { id: Date.now(), nombre, rut, cursoId };
-  state.alumnos.push(alumno);
-  closeModal('modal-alumno');
-  document.getElementById('inp-nombre').value = '';
-  document.getElementById('inp-rut').value = '';
-  document.getElementById('inp-curso-alumno').value = '';
-  updateStats(); renderDashboard(); renderAlumnosTabla();
-  showToast('✓ Alumno registrado: ' + nombre);
+  try {
+    showLoading(true);
+    const [row] = await sbPost('alumnos', { nombre, rut, curso_id: cursoId ? parseInt(cursoId) : null });
+    state.alumnos.push({ id: row.id, nombre: row.nombre, rut: row.rut || '', cursoId: row.curso_id });
+    closeModal('modal-alumno');
+    document.getElementById('inp-nombre').value = '';
+    document.getElementById('inp-rut').value = '';
+    document.getElementById('inp-curso-alumno').value = '';
+    updateStats(); renderDashboard(); renderAlumnosTabla();
+    showToast('✓ Alumno registrado: ' + nombre);
+  } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function renderAlumnosTabla() {
@@ -805,24 +905,36 @@ function renderAlumnosTabla() {
   }).join('');
 }
 
-function eliminarAlumno(id) {
-  state.alumnos = state.alumnos.filter(a => a.id !== id);
-  state.grupos.forEach(g => { g.integrantes = g.integrantes.filter(i => i !== id); });
-  renderAlumnosTabla(); updateStats(); renderDashboard(); renderGrupos();
-  showToast('Alumno eliminado');
+async function eliminarAlumno(id) {
+  if (!confirm('¿Eliminar este alumno? Se borrarán también sus evaluaciones.')) return;
+  try {
+    showLoading(true);
+    await sbDelete('alumnos', `id=eq.${id}`);
+    state.alumnos = state.alumnos.filter(a => a.id !== id);
+    state.grupos.forEach(g => { g.integrantes = g.integrantes.filter(i => i !== id); });
+    delete state.evaluaciones[id];
+    renderAlumnosTabla(); updateStats(); renderDashboard(); renderGrupos();
+    showToast('Alumno eliminado');
+  } catch(e) { showToast('⚠ Error: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 // ─── CURSOS ───
-function agregarCurso() {
+async function agregarCurso() {
   const nombre = document.getElementById('inp-curso-nombre').value.trim();
-  const nivel = document.getElementById('inp-curso-nivel').value.trim();
+  const nivel  = document.getElementById('inp-curso-nivel').value.trim();
   if (!nombre) { showToast('⚠ Ingresa el nombre del curso'); return; }
-  state.cursos.push({ id: Date.now(), nombre, nivel });
-  closeModal('modal-curso');
-  document.getElementById('inp-curso-nombre').value = '';
-  document.getElementById('inp-curso-nivel').value = '';
-  updateStats(); refreshCursosSelects(); renderCursos();
-  showToast('✓ Curso creado: ' + nombre);
+  try {
+    showLoading(true);
+    const [row] = await sbPost('cursos', { nombre, nivel });
+    state.cursos.push({ id: row.id, nombre: row.nombre, nivel: row.nivel || '' });
+    closeModal('modal-curso');
+    document.getElementById('inp-curso-nombre').value = '';
+    document.getElementById('inp-curso-nivel').value = '';
+    updateStats(); refreshCursosSelects(); renderCursos();
+    showToast('✓ Curso creado: ' + nombre);
+  } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function renderCursos() {
@@ -851,10 +963,16 @@ function renderCursos() {
   renderAlumnosTabla();
 }
 
-function eliminarCurso(id) {
-  state.cursos = state.cursos.filter(c => c.id !== id);
-  renderCursos(); refreshCursosSelects(); updateStats();
-  showToast('Curso eliminado');
+async function eliminarCurso(id) {
+  if (!confirm('¿Eliminar este curso?')) return;
+  try {
+    showLoading(true);
+    await sbDelete('cursos', `id=eq.${id}`);
+    state.cursos = state.cursos.filter(c => c.id !== id);
+    renderCursos(); refreshCursosSelects(); updateStats();
+    showToast('Curso eliminado');
+  } catch(e) { showToast('⚠ Error: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function refreshCursosSelects() {
@@ -893,21 +1011,27 @@ function checkIntegrantesLimit() {
   }
 }
 
-function agregarGrupo() {
-  const nombre = document.getElementById('inp-grupo-nombre').value.trim();
+async function agregarGrupo() {
+  const nombre  = document.getElementById('inp-grupo-nombre').value.trim();
   const cursoId = document.getElementById('inp-grupo-curso').value;
-  if (!nombre) { showToast('⚠ Ingresa el nombre del grupo'); return; }
+  if (!nombre)  { showToast('⚠ Ingresa el nombre del grupo'); return; }
   if (!cursoId) { showToast('⚠ Selecciona un curso'); return; }
   const checks = [...document.querySelectorAll('#integrantes-checks input[type=checkbox]:checked')];
   if (!checks.length) { showToast('⚠ Agrega al menos un integrante'); return; }
   const integrantes = checks.map(c => parseInt(c.value));
-  state.grupos.push({ id: Date.now(), nombre, cursoId, integrantes });
-  closeModal('modal-grupo');
-  document.getElementById('inp-grupo-nombre').value = '';
-  document.getElementById('inp-grupo-curso').value = '';
-  document.getElementById('integrantes-checks').innerHTML = '';
-  updateStats(); renderGrupos(); renderAlumnosTabla(); renderSelectoresEval();
-  showToast('✓ Grupo creado: ' + nombre);
+  try {
+    showLoading(true);
+    const [grupo] = await sbPost('grupos', { nombre, curso_id: parseInt(cursoId) });
+    await sbPost('grupo_integrantes', integrantes.map(aid => ({ grupo_id: grupo.id, alumno_id: aid })));
+    state.grupos.push({ id: grupo.id, nombre: grupo.nombre, cursoId: grupo.curso_id, integrantes });
+    closeModal('modal-grupo');
+    document.getElementById('inp-grupo-nombre').value = '';
+    document.getElementById('inp-grupo-curso').value = '';
+    document.getElementById('integrantes-checks').innerHTML = '';
+    updateStats(); renderGrupos(); renderAlumnosTabla(); renderSelectoresEval();
+    showToast('✓ Grupo creado: ' + nombre);
+  } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function renderGrupos() {
@@ -956,10 +1080,16 @@ function renderGrupos() {
   }).join('');
 }
 
-function eliminarGrupo(id) {
-  state.grupos = state.grupos.filter(g => g.id !== id);
-  renderGrupos(); updateStats(); renderSelectoresEval();
-  showToast('Grupo eliminado');
+async function eliminarGrupo(id) {
+  if (!confirm('¿Eliminar este grupo?')) return;
+  try {
+    showLoading(true);
+    await sbDelete('grupos', `id=eq.${id}`);
+    state.grupos = state.grupos.filter(g => g.id !== id);
+    renderGrupos(); updateStats(); renderSelectoresEval();
+    showToast('Grupo eliminado');
+  } catch(e) { showToast('⚠ Error: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function irAEvaluar(grupoId) {
@@ -1090,7 +1220,7 @@ function getNotaClass(nota) {
   return 'nota-reprobado';
 }
 
-function guardarEvaluacion() {
+async function guardarEvaluacion() {
   const criteriosFaltantes = CRITERIOS.filter(c => currentEval[c.id] === undefined);
   if (criteriosFaltantes.length) {
     showToast('⚠ Debes evaluar todos los criterios: ' + criteriosFaltantes.map(c=>c.id).join(', '));
@@ -1100,12 +1230,25 @@ function guardarEvaluacion() {
   const alumno = state.alumnos.find(a => a.id === aid);
   if (!alumno) return;
   const total = Object.values(currentEval).reduce((s,v) => s + v, 0);
-  const nota = puntajeANota(total);
-  state.evaluaciones[aid] = { criterios: { ...currentEval }, total, nota, fecha: new Date().toLocaleDateString('es-CL') };
-  updateStats();
-  cargarGrupoEval(); // refresh dropdown labels
-  setTimeout(() => { document.getElementById('sel-alumno-eval').value = aid; cargarAlumnoEval(); }, 50);
-  showToast('✓ Evaluación guardada · Nota: ' + nota.toFixed(1));
+  const nota  = puntajeANota(total);
+  const fecha = new Date().toLocaleDateString('es-CL');
+  const payload = { alumno_id: aid, c1: currentEval.C1, c2: currentEval.C2, c3: currentEval.C3, c4: currentEval.C4, total, nota, fecha };
+  try {
+    showLoading(true);
+    const existente = state.evaluaciones[aid];
+    if (existente && existente.id) {
+      await sbPatch('evaluaciones', `id=eq.${existente.id}`, payload);
+    } else {
+      const [row] = await sbPost('evaluaciones', payload);
+      payload.id = row.id;
+    }
+    state.evaluaciones[aid] = { id: payload.id, criterios: { ...currentEval }, total, nota, fecha };
+    updateStats();
+    cargarGrupoEval();
+    setTimeout(() => { document.getElementById('sel-alumno-eval').value = aid; cargarAlumnoEval(); }, 50);
+    showToast('✓ Evaluación guardada · Nota: ' + nota.toFixed(1));
+  } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
+  finally { showLoading(false); }
 }
 
 function limpiarRubrica() {
@@ -1216,40 +1359,11 @@ function showToast(msg, duration=3000) {
   setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateY(10px)'; t.style.transition = 'all .2s'; setTimeout(() => t.remove(), 200); }, duration);
 }
 
-// ─── DEMO DATA ───
-function loadDemo() {
-  state.cursos = [
-    { id: 1001, nombre: 'Arquitectura de Software — Sección A', nivel: '6° Semestre 2026' },
-    { id: 1002, nombre: 'DevOps & CI/CD — Sección B', nivel: '7° Semestre 2026' }
-  ];
-  state.alumnos = [
-    { id: 2001, nombre: 'María González Soto', rut: '19.123.456-7', cursoId: 1001 },
-    { id: 2002, nombre: 'Carlos Muñoz Pérez', rut: '19.234.567-8', cursoId: 1001 },
-    { id: 2003, nombre: 'Valentina Rojas León', rut: '19.345.678-9', cursoId: 1001 },
-    { id: 2004, nombre: 'Diego Fuentes Mora', rut: '19.456.789-0', cursoId: 1002 },
-    { id: 2005, nombre: 'Camila Vega Díaz', rut: '19.567.890-1', cursoId: 1002 }
-  ];
-  state.grupos = [
-    { id: 3001, nombre: 'Grupo Microservicios', cursoId: 1001, integrantes: [2001, 2002, 2003] },
-    { id: 3002, nombre: 'Grupo DevOps Pro', cursoId: 1002, integrantes: [2004, 2005] }
-  ];
-  state.evaluaciones = {
-    2001: { criterios: { C1:25, C2:20, C3:20, C4:25 }, total:90, nota:puntajeANota(90), fecha: new Date().toLocaleDateString('es-CL') },
-    2002: { criterios: { C1:20, C2:15, C3:20, C4:15 }, total:70, nota:puntajeANota(70), fecha: new Date().toLocaleDateString('es-CL') }
-  };
-  updateStats(); renderDashboard(); refreshCursosSelects();
-  showToast('✓ Datos de demostración cargados');
-}
-
 // ─── INIT ───
 document.addEventListener('DOMContentLoaded', () => {
-  loadDemo();
-  // Add demo hint button
-  const topbar = document.querySelector('.topbar-right');
-  const demo = document.createElement('button');
-  demo.className = 'btn btn-outline btn-sm'; demo.textContent = 'Cargar demo';
-  demo.onclick = loadDemo; topbar.insertBefore(demo, topbar.firstChild);
+  cargarTodo();
 });
+
 </script>
 </body>
 </html>
