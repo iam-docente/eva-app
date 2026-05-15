@@ -602,11 +602,12 @@
 <!-- TOAST CONTAINER -->
 <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-<!-- ─── MODAL: Nuevo Alumno ─── -->
+<!-- ─── MODAL: Nuevo/Editar Alumno ─── -->
 <div class="modal-overlay" id="modal-alumno" role="dialog" aria-modal="true" aria-labelledby="modal-alumno-title">
   <div class="modal">
     <h3 id="modal-alumno-title">Registrar alumno</h3>
-    <p class="subtitle">Completa los datos del nuevo alumno para agregarlo a la plataforma.</p>
+    <p class="subtitle" id="modal-alumno-subtitle">Completa los datos del nuevo alumno para agregarlo a la plataforma.</p>
+    <input type="hidden" id="inp-alumno-id">
     <div class="form-group">
       <label class="form-label conversational" for="inp-nombre">¿Cuál es el nombre completo del alumno?</label>
       <input class="form-input" type="text" id="inp-nombre" placeholder="Ej: María González Soto" autocomplete="name">
@@ -623,16 +624,17 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-alumno')">Cancelar</button>
-      <button class="btn btn-primary" onclick="agregarAlumno()">Registrar alumno</button>
+      <button class="btn btn-primary" id="btn-alumno-submit" onclick="submitAlumno()">Registrar alumno</button>
     </div>
   </div>
 </div>
 
-<!-- ─── MODAL: Nuevo Curso ─── -->
+<!-- ─── MODAL: Nuevo/Editar Curso ─── -->
 <div class="modal-overlay" id="modal-curso" role="dialog" aria-modal="true" aria-labelledby="modal-curso-title">
   <div class="modal">
     <h3 id="modal-curso-title">Crear curso</h3>
-    <p class="subtitle">Define el nombre y nivel del nuevo curso.</p>
+    <p class="subtitle" id="modal-curso-subtitle">Define el nombre y nivel del nuevo curso.</p>
+    <input type="hidden" id="inp-curso-id">
     <div class="form-group">
       <label class="form-label conversational" for="inp-curso-nombre">¿Cómo se llama este curso?</label>
       <input class="form-input" type="text" id="inp-curso-nombre" placeholder="Ej: Arquitectura de Software — Sección A">
@@ -643,16 +645,17 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-curso')">Cancelar</button>
-      <button class="btn btn-primary" onclick="agregarCurso()">Crear curso</button>
+      <button class="btn btn-primary" id="btn-curso-submit" onclick="submitCurso()">Crear curso</button>
     </div>
   </div>
 </div>
 
-<!-- ─── MODAL: Nuevo Grupo ─── -->
+<!-- ─── MODAL: Nuevo/Editar Grupo ─── -->
 <div class="modal-overlay" id="modal-grupo" role="dialog" aria-modal="true" aria-labelledby="modal-grupo-title">
   <div class="modal">
     <h3 id="modal-grupo-title">Crear grupo</h3>
-    <p class="subtitle">Nombra el grupo y agrega entre 1 y 4 integrantes.</p>
+    <p class="subtitle" id="modal-grupo-subtitle">Nombra el grupo y agrega entre 1 y 4 integrantes.</p>
+    <input type="hidden" id="inp-grupo-id">
     <div class="form-group">
       <label class="form-label conversational" for="inp-grupo-nombre">¿Cómo se llama este grupo?</label>
       <input class="form-input" type="text" id="inp-grupo-nombre" placeholder="Ej: Grupo DevOps — CI/CD Pro">
@@ -670,7 +673,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-grupo')">Cancelar</button>
-      <button class="btn btn-primary" onclick="agregarGrupo()">Crear grupo</button>
+      <button class="btn btn-primary" id="btn-grupo-submit" onclick="submitGrupo()">Crear grupo</button>
     </div>
   </div>
 </div>
@@ -843,9 +846,9 @@ function toggleDark() {
 
 // ─── MODALS ───
 function openModal(id) {
-  if (id === 'modal-alumno') refreshCursosSelects();
-  if (id === 'modal-curso') {}
-  if (id === 'modal-grupo') { refreshCursosSelects(); actualizarAlumnosDisponibles(); }
+  if (id === 'modal-alumno') { openModalAlumnoNuevo(); return; }
+  if (id === 'modal-curso')  { openModalCursoNuevo(); return; }
+  if (id === 'modal-grupo')  { openModalGrupoNuevo(); return; }
   document.getElementById(id).classList.add('open');
   const firstInput = document.querySelector(`#${id} input, #${id} select`);
   if (firstInput) setTimeout(() => firstInput.focus(), 50);
@@ -861,21 +864,54 @@ document.addEventListener('keydown', e => {
 });
 
 // ─── ALUMNOS ───
-async function agregarAlumno() {
-  const nombre = document.getElementById('inp-nombre').value.trim();
-  const rut    = document.getElementById('inp-rut').value.trim();
+function editarAlumno(id) {
+  const a = state.alumnos.find(a => a.id === id);
+  if (!a) return;
+  refreshCursosSelects();
+  document.getElementById('modal-alumno-title').textContent = 'Editar alumno';
+  document.getElementById('modal-alumno-subtitle').textContent = 'Modifica los datos del alumno.';
+  document.getElementById('btn-alumno-submit').textContent = 'Guardar cambios';
+  document.getElementById('inp-alumno-id').value = id;
+  document.getElementById('inp-nombre').value = a.nombre;
+  document.getElementById('inp-rut').value = a.rut || '';
+  document.getElementById('inp-curso-alumno').value = a.cursoId || '';
+  document.getElementById('modal-alumno').classList.add('open');
+  setTimeout(() => document.getElementById('inp-nombre').focus(), 50);
+}
+
+function openModalAlumnoNuevo() {
+  refreshCursosSelects();
+  document.getElementById('modal-alumno-title').textContent = 'Registrar alumno';
+  document.getElementById('modal-alumno-subtitle').textContent = 'Completa los datos del nuevo alumno.';
+  document.getElementById('btn-alumno-submit').textContent = 'Registrar alumno';
+  document.getElementById('inp-alumno-id').value = '';
+  document.getElementById('inp-nombre').value = '';
+  document.getElementById('inp-rut').value = '';
+  document.getElementById('inp-curso-alumno').value = '';
+  document.getElementById('modal-alumno').classList.add('open');
+  setTimeout(() => document.getElementById('inp-nombre').focus(), 50);
+}
+
+async function submitAlumno() {
+  const nombre  = document.getElementById('inp-nombre').value.trim();
+  const rut     = document.getElementById('inp-rut').value.trim();
   const cursoId = document.getElementById('inp-curso-alumno').value || null;
+  const editId  = document.getElementById('inp-alumno-id').value;
   if (!nombre) { showToast('⚠ Ingresa el nombre del alumno'); return; }
   try {
     showLoading(true);
-    const [row] = await sbPost('alumnos', { nombre, rut, curso_id: cursoId ? parseInt(cursoId) : null });
-    state.alumnos.push({ id: row.id, nombre: row.nombre, rut: row.rut || '', cursoId: row.curso_id });
+    if (editId) {
+      await sbPatch('alumnos', `id=eq.${editId}`, { nombre, rut, curso_id: cursoId ? parseInt(cursoId) : null });
+      const idx = state.alumnos.findIndex(a => a.id == editId);
+      if (idx !== -1) state.alumnos[idx] = { ...state.alumnos[idx], nombre, rut, cursoId: cursoId ? parseInt(cursoId) : null };
+      showToast('✓ Alumno actualizado');
+    } else {
+      const [row] = await sbPost('alumnos', { nombre, rut, curso_id: cursoId ? parseInt(cursoId) : null });
+      state.alumnos.push({ id: row.id, nombre: row.nombre, rut: row.rut || '', cursoId: row.curso_id });
+      showToast('✓ Alumno registrado: ' + nombre);
+    }
     closeModal('modal-alumno');
-    document.getElementById('inp-nombre').value = '';
-    document.getElementById('inp-rut').value = '';
-    document.getElementById('inp-curso-alumno').value = '';
     updateStats(); renderDashboard(); renderAlumnosTabla();
-    showToast('✓ Alumno registrado: ' + nombre);
   } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
   finally { showLoading(false); }
 }
@@ -900,7 +936,10 @@ function renderAlumnosTabla() {
       <td><span style="color:var(--text3)">${a.rut || '—'}</span></td>
       <td>${curso ? '<span class="tag tag-blue">'+curso.nombre+'</span>' : '<span class="tag tag-gray">Sin curso</span>'}</td>
       <td>${grupo ? '<span class="tag tag-green">'+grupo.nombre+'</span>' : '<span class="tag tag-gray">Sin grupo</span>'}</td>
-      <td><button class="btn btn-sm btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="eliminarAlumno(${a.id})">Eliminar</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-outline" onclick="editarAlumno(${a.id})">Editar</button>
+        <button class="btn btn-sm btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="eliminarAlumno(${a.id})">Eliminar</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -920,19 +959,49 @@ async function eliminarAlumno(id) {
 }
 
 // ─── CURSOS ───
-async function agregarCurso() {
+function editarCurso(id) {
+  const c = state.cursos.find(c => c.id === id);
+  if (!c) return;
+  document.getElementById('modal-curso-title').textContent = 'Editar curso';
+  document.getElementById('modal-curso-subtitle').textContent = 'Modifica los datos del curso.';
+  document.getElementById('btn-curso-submit').textContent = 'Guardar cambios';
+  document.getElementById('inp-curso-id').value = id;
+  document.getElementById('inp-curso-nombre').value = c.nombre;
+  document.getElementById('inp-curso-nivel').value = c.nivel || '';
+  document.getElementById('modal-curso').classList.add('open');
+  setTimeout(() => document.getElementById('inp-curso-nombre').focus(), 50);
+}
+
+function openModalCursoNuevo() {
+  document.getElementById('modal-curso-title').textContent = 'Crear curso';
+  document.getElementById('modal-curso-subtitle').textContent = 'Define el nombre y nivel del nuevo curso.';
+  document.getElementById('btn-curso-submit').textContent = 'Crear curso';
+  document.getElementById('inp-curso-id').value = '';
+  document.getElementById('inp-curso-nombre').value = '';
+  document.getElementById('inp-curso-nivel').value = '';
+  document.getElementById('modal-curso').classList.add('open');
+  setTimeout(() => document.getElementById('inp-curso-nombre').focus(), 50);
+}
+
+async function submitCurso() {
   const nombre = document.getElementById('inp-curso-nombre').value.trim();
   const nivel  = document.getElementById('inp-curso-nivel').value.trim();
+  const editId = document.getElementById('inp-curso-id').value;
   if (!nombre) { showToast('⚠ Ingresa el nombre del curso'); return; }
   try {
     showLoading(true);
-    const [row] = await sbPost('cursos', { nombre, nivel });
-    state.cursos.push({ id: row.id, nombre: row.nombre, nivel: row.nivel || '' });
+    if (editId) {
+      await sbPatch('cursos', `id=eq.${editId}`, { nombre, nivel });
+      const idx = state.cursos.findIndex(c => c.id == editId);
+      if (idx !== -1) state.cursos[idx] = { ...state.cursos[idx], nombre, nivel };
+      showToast('✓ Curso actualizado');
+    } else {
+      const [row] = await sbPost('cursos', { nombre, nivel });
+      state.cursos.push({ id: row.id, nombre: row.nombre, nivel: row.nivel || '' });
+      showToast('✓ Curso creado: ' + nombre);
+    }
     closeModal('modal-curso');
-    document.getElementById('inp-curso-nombre').value = '';
-    document.getElementById('inp-curso-nivel').value = '';
     updateStats(); refreshCursosSelects(); renderCursos();
-    showToast('✓ Curso creado: ' + nombre);
   } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
   finally { showLoading(false); }
 }
@@ -956,6 +1025,7 @@ function renderCursos() {
       </div>
       <div class="curso-footer">
         <button class="btn btn-sm btn-outline" onclick="openModal('modal-alumno')">+ Alumno</button>
+        <button class="btn btn-sm btn-outline" onclick="editarCurso(${c.id})">Editar</button>
         <button class="btn btn-sm btn-outline" style="margin-left:auto;color:var(--danger)" onclick="eliminarCurso(${c.id})">Eliminar</button>
       </div>
     </div>`;
@@ -983,7 +1053,7 @@ function refreshCursosSelects() {
 }
 
 // ─── GRUPOS ───
-function actualizarAlumnosDisponibles() {
+function actualizarAlumnosDisponibles(preselected = []) {
   const cursoId = document.getElementById('inp-grupo-curso').value;
   const container = document.getElementById('integrantes-checks');
   const hint = document.getElementById('integrantes-hint');
@@ -993,8 +1063,9 @@ function actualizarAlumnosDisponibles() {
   hint.textContent = 'Máximo 4 integrantes.';
   container.innerHTML = disponibles.map(a => {
     const initials = a.nombre.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+    const checked  = preselected.includes(a.id) ? 'checked' : '';
     return `<label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <input type="checkbox" value="${a.id}" style="width:16px;height:16px;accent-color:var(--accent)" onchange="checkIntegrantesLimit()">
+      <input type="checkbox" value="${a.id}" ${checked} style="width:16px;height:16px;accent-color:var(--accent)" onchange="checkIntegrantesLimit()">
       <div class="avatar" style="width:30px;height:30px;font-size:11px;flex-shrink:0">${initials}</div>
       <span style="font-size:13px">${a.nombre}</span>
     </label>`;
@@ -1011,9 +1082,37 @@ function checkIntegrantesLimit() {
   }
 }
 
-async function agregarGrupo() {
+function editarGrupo(id) {
+  const g = state.grupos.find(g => g.id === id);
+  if (!g) return;
+  refreshCursosSelects();
+  document.getElementById('modal-grupo-title').textContent = 'Editar grupo';
+  document.getElementById('modal-grupo-subtitle').textContent = 'Modifica el nombre e integrantes del grupo.';
+  document.getElementById('btn-grupo-submit').textContent = 'Guardar cambios';
+  document.getElementById('inp-grupo-id').value = id;
+  document.getElementById('inp-grupo-nombre').value = g.nombre;
+  document.getElementById('inp-grupo-curso').value = g.cursoId || '';
+  actualizarAlumnosDisponibles(g.integrantes);
+  document.getElementById('modal-grupo').classList.add('open');
+  setTimeout(() => document.getElementById('inp-grupo-nombre').focus(), 50);
+}
+
+function openModalGrupoNuevo() {
+  refreshCursosSelects();
+  document.getElementById('modal-grupo-title').textContent = 'Crear grupo';
+  document.getElementById('modal-grupo-subtitle').textContent = 'Nombra el grupo y agrega entre 1 y 4 integrantes.';
+  document.getElementById('btn-grupo-submit').textContent = 'Crear grupo';
+  document.getElementById('inp-grupo-id').value = '';
+  document.getElementById('inp-grupo-nombre').value = '';
+  document.getElementById('inp-grupo-curso').value = '';
+  document.getElementById('integrantes-checks').innerHTML = '';
+  document.getElementById('modal-grupo').classList.add('open');
+}
+
+async function submitGrupo() {
   const nombre  = document.getElementById('inp-grupo-nombre').value.trim();
   const cursoId = document.getElementById('inp-grupo-curso').value;
+  const editId  = document.getElementById('inp-grupo-id').value;
   if (!nombre)  { showToast('⚠ Ingresa el nombre del grupo'); return; }
   if (!cursoId) { showToast('⚠ Selecciona un curso'); return; }
   const checks = [...document.querySelectorAll('#integrantes-checks input[type=checkbox]:checked')];
@@ -1021,15 +1120,25 @@ async function agregarGrupo() {
   const integrantes = checks.map(c => parseInt(c.value));
   try {
     showLoading(true);
-    const [grupo] = await sbPost('grupos', { nombre, curso_id: parseInt(cursoId) });
-    await sbPost('grupo_integrantes', integrantes.map(aid => ({ grupo_id: grupo.id, alumno_id: aid })));
-    state.grupos.push({ id: grupo.id, nombre: grupo.nombre, cursoId: grupo.curso_id, integrantes });
+    if (editId) {
+      await sbPatch('grupos', `id=eq.${editId}`, { nombre, curso_id: parseInt(cursoId) });
+      // Reemplazar integrantes: borrar anteriores e insertar nuevos
+      await sbDelete('grupo_integrantes', `grupo_id=eq.${editId}`);
+      await sbPost('grupo_integrantes', integrantes.map(aid => ({ grupo_id: parseInt(editId), alumno_id: aid })));
+      const idx = state.grupos.findIndex(g => g.id == editId);
+      if (idx !== -1) state.grupos[idx] = { ...state.grupos[idx], nombre, cursoId: parseInt(cursoId), integrantes };
+      showToast('✓ Grupo actualizado');
+    } else {
+      const [grupo] = await sbPost('grupos', { nombre, curso_id: parseInt(cursoId) });
+      await sbPost('grupo_integrantes', integrantes.map(aid => ({ grupo_id: grupo.id, alumno_id: aid })));
+      state.grupos.push({ id: grupo.id, nombre: grupo.nombre, cursoId: grupo.curso_id, integrantes });
+      showToast('✓ Grupo creado: ' + nombre);
+    }
     closeModal('modal-grupo');
     document.getElementById('inp-grupo-nombre').value = '';
     document.getElementById('inp-grupo-curso').value = '';
     document.getElementById('integrantes-checks').innerHTML = '';
     updateStats(); renderGrupos(); renderAlumnosTabla(); renderSelectoresEval();
-    showToast('✓ Grupo creado: ' + nombre);
   } catch(e) { showToast('⚠ Error al guardar: ' + e.message); }
   finally { showLoading(false); }
 }
@@ -1073,6 +1182,7 @@ function renderGrupos() {
         <span style="font-size:12px;color:var(--text3)">${evals.length}/${integrantes.length} evaluados</span>
         <div style="display:flex;gap:8px">
           <button class="btn btn-sm btn-primary" onclick="irAEvaluar(${g.id})">Evaluar</button>
+          <button class="btn btn-sm btn-outline" onclick="editarGrupo(${g.id})">Editar</button>
           <button class="btn btn-sm btn-outline" style="color:var(--danger)" onclick="eliminarGrupo(${g.id})">Eliminar</button>
         </div>
       </div>
@@ -1257,6 +1367,20 @@ function limpiarRubrica() {
   calcularScore();
 }
 
+async function eliminarEvaluacion(aid) {
+  if (!confirm('¿Eliminar esta evaluación? El alumno quedará sin nota.')) return;
+  const ev = state.evaluaciones[aid];
+  if (!ev) return;
+  try {
+    showLoading(true);
+    if (ev.id) await sbDelete('evaluaciones', `id=eq.${ev.id}`);
+    delete state.evaluaciones[aid];
+    updateStats(); renderResultados();
+    showToast('Evaluación eliminada');
+  } catch(e) { showToast('⚠ Error: ' + e.message); }
+  finally { showLoading(false); }
+}
+
 // ─── RESULTADOS ───
 function renderResultados() {
   const grid = document.getElementById('resultados-grid');
@@ -1290,7 +1414,10 @@ function renderResultados() {
           <div class="crit-bar-bg"><div class="crit-bar-fill" style="width:${pct}%"></div></div>
         </div>`;
       }).join('')}
-      <div style="margin-top:12px;font-size:12px;color:var(--text3);text-align:right">Total: ${ev.total.toFixed(1)}/100</div>
+      <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;color:var(--text3)">Total: ${ev.total.toFixed(1)}/100</span>
+        <button class="btn btn-sm btn-outline" style="color:var(--danger);font-size:12px" onclick="eliminarEvaluacion(${aid})">Eliminar evaluación</button>
+      </div>
     </div>`;
   }).join('');
 }
